@@ -1,0 +1,63 @@
+{
+  "name": "antiphon",
+  "version": "1.0.0",
+  "description": "An Inter-agent Task and payment coordination System built on Storacha ElizaOS x402 ecosystem.",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "ts-node index.ts"
+  },
+  "keywords": [
+    "elizaos",
+    "storacha",
+    "x402",
+    "antiphon",
+    "erc8004",
+    "blockchain"
+  ],
+  "author": "Neha Kumari",
+  "license": "ISC",
+  "packageManager": "pnpm@10.19.0",
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@elizaos/client-direct": "^0.25.9",
+    "@elizaos/core": "^1.7.2",
+    "@elizaos/plugin-bootstrap": "^1.7.2",
+    "@storacha/elizaos-plugin": "^1.2.1",
+    "@x402/core": "^2.2.0",
+    "@x402/evm": "^2.2.0",
+    "@x402/express": "^2.2.0",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.16.0",
+    "express": "^5.2.1",
+    "fs": "0.0.1-security",
+    "papaparse": "^5.5.3",
+    "path": "^0.12.7",
+    "sharp": "^0.34.5",
+    "whatwg-url": "^7.1.0",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
+  },
+  "pnpm": {
+    "overrides": {
+      "whatwg-url": "^7.1.0",
+      "path-to-regexp": ">=0.1.12",
+      "glob": ">=11.1.0",
+      "qs": ">=6.14.1",
+      "tar": ">=7.5.4",
+      "esbuild": ">=0.25.0",
+      "jsondiffpatch": ">=0.7.2",
+      "nanoid": ">=3.3.8",
+      "ai": ">=5.0.52"
+    },
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "zod": "4"
+      }
+    }
+  }
+}
