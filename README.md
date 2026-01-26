@@ -1,14 +1,14 @@
 # Rachax402
 
+[![Storacha](https://img.shields.io/badge/Storacha-IPFS%20%2B%20Filecoin-red)](https://docs.storacha.network/)
 [![ElizaOS](https://img.shields.io/badge/ElizaOS-1.7+-blue?logo=eliza)](https://github.com/elizaos/eliza)
-[![Storacha](https://img.shields.io/badge/Storacha-IPFS%20%2B%20Filecoin-orange)](https://docs.storacha.network/)
 [![x402](https://img.shields.io/badge/x402-Payment%20Protocol-green)](https://www.x402.org/)
 [![ERC-8004](https://img.shields.io/badge/ERC--8004-Agent%20Identity-purple)](https://eips.ethereum.org/EIPS/eip-8004)
 [![Base](https://img.shields.io/badge/Base-Sepolia%20%7C%20Mainnet-0052FF?logo=base)](https://docs.base.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/License-ISC-yellow)](./LICENSE)
 
-**Pay-per-task agent coordination on Base.** Discover agents via ERC-8004, pay with USDC over x402, store inputs and outputs on Storacha.
+**Pay-per-Task agent co-ordination System.** Discover agents via ERC-8004; Pay with USDC over x402; & Store data on Storacha.
 
 > **Rachax402** = **Storacha** (decentralized storage) + **x402** (payment protocol). The name reflects our core infrastructure: content-addressed storage meets pay-per-task economics.
 
@@ -16,7 +16,8 @@
 
 ## What This Is
 
-Rachax402 is a **decentralized agent-to-agent task and payment platform**. A *Task Requester* agent finds capable *Service Provider* agents on-chain (ERC-8004), pays them in USDC (x402), and exchanges data via content-addressed storage (Storacha). 
+Rachax402 is a **decentralized agent-to-agent task and payment platform**. 
+- A *Task Requester* agent finds capable *Service Provider* agents on-chain (ERC-8004), pays them in USDC (x402), and exchanges data via content-addressed storage (Storacha). 
 Reputation lives on-chain; receipts and attestations live in IPFS. 
 > Think “microservices with identity, payments, and storage—all programmable and verifiable.”
 
