@@ -2,10 +2,9 @@ import { DirectClient } from "@elizaos/client-direct";
 import {
   AgentRuntime,
   elizaLogger,
-  settings,
+  getEnv,
   stringToUuid,
   type Character,
-  ModelProviderName,
 } from "@elizaos/core";
 import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
 import fs from "fs";
@@ -13,15 +12,29 @@ import net from "net";
 import path from "path";
 import { fileURLToPath } from "url";
 import { getStorageClient } from "@storacha/elizaos-plugin";
-import { agentRequester } from "./elizaOS/Requester/character.ts";
-import { agentProvider } from "./elizaOS/Provider/character.ts";
+import { agentRequester } from "./elizaOS/Requester/character.js";
+import { agentProvider } from "./elizaOS/Provider/character.js";
+import { initializeERC8004, getERC8004Actions } from "./plugins/erc8004/index.js";
+import { initializeX402, getX402Actions } from "./plugins/x402/index.js";
+import express from "express";
+import Papa from "papaparse";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-type ActionHandlerCallback = (response: { text?: string }) => Promise<unknown[]>;
-interface ActionHandlerState {
+export type ActionHandlerCallback = (response: { text?: string }) => Promise<unknown[]>;
+export interface ActionHandlerState {
   recentMessagesData?: Array<{ content?: { text?: string }; createdAt: number }>;
+  data?: {
+    agentCardCID?: string;
+    selectedAgent?: { address?: string; endpoint?: string; agentCardCID?: string; reputation?: number; totalRatings?: number };
+    inputCID?: string;
+    providerEndpoint?: string;
+    resultCID?: string;
+    rating?: number;
+    comment?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
@@ -31,8 +44,8 @@ declare module "@elizaos/core" {
   }
 }
 
-function getTokenForProvider(provider: ModelProviderName, character: Character): string {
-  const envKey = provider === ModelProviderName.OPENROUTER 
+function getTokenForProvider(provider: string, character: Character): string {
+  const envKey = provider === "OPENROUTER" 
     ? "OPENROUTER_API_KEY" 
     : `${provider.toUpperCase()}_API_KEY`;
   return process.env[envKey] || "";
@@ -114,41 +127,71 @@ async function startRequesterAgent(character: Character, directClient: DirectCli
     const cache = initializeDbCache(character, db);
     const runtime = createAgent(character, db, cache, token);
 
+    if (process.env.BASE_RPC_URL && process.env.PRIVATE_KEY) {
+      initializeERC8004({
+        identityRegistryAddress: process.env.ERC8004_IDENTITY_REGISTRY || "",
+        reputationRegistryAddress: process.env.ERC8004_REPUTATION_REGISTRY || "",
+        rpcUrl: process.env.BASE_RPC_URL,
+        privateKey: process.env.PRIVATE_KEY,
+      });
+    }
+
+    if (process.env.X402_FACILITATOR_URL && process.env.PRIVATE_KEY) {
+      initializeX402({
+        facilitatorUrl: process.env.X402_FACILITATOR_URL,
+        privateKey: process.env.PRIVATE_KEY,
+        rpcUrl: process.env.BASE_RPC_URL || "",
+      });
+    }
+
     await runtime.initialize();
 
-    runtime.evaluate = async () => ['AGENT_DISCOVER', 'ANTIPHON_AT_PLAY', 'PAYMENT_REQUEST', 'REPUTATION_POST'];
+    const erc8004Actions = getERC8004Actions();
+    const x402Actions = getX402Actions();
 
-    runtime.registerAction({
-      name: 'AGENT_DISCOVER',
-      description: 'Query ERC-8004 AgentIdentityRegistry to find service providers by capability tags',
-      similes: ['discover', 'find', 'search'],
-      validate: async () => true,
-      handler: async (
-        _runtime: unknown,
-        _message: unknown,
-        state: ActionHandlerState,
-        _options: unknown,
-        callback: ActionHandlerCallback
-      ) => {
-        const capabilities = state.recentMessagesData
-          ?.find((m) => m.content?.text?.includes('csv') || m.content?.text?.includes('analyze'))
-          ?.content?.text || 'csv-analysis';
+    runtime.evaluate = async () => ['AGENT_DISCOVER', 'ANTIPHON_AT_PLAY', 'PAYMENT_REQUEST', 'RESULT_RETRIEVE', 'REPUTATION_POST'];
+
+    const discoverAction = erc8004Actions.AGENT_DISCOVER;
+    discoverAction.handler = async (
+      _runtime: unknown,
+      _message: unknown,
+      state: ActionHandlerState,
+      _options: unknown,
+      callback: ActionHandlerCallback
+    ) => {
+      const capabilities = (state.recentMessagesData
+        ?.find((m) => m.content?.text?.includes('csv') || m.content?.text?.includes('analyze'))
+        ?.content?.text || 'csv-analysis').toLowerCase();
+
+      if (process.env.BASE_RPC_URL && process.env.PRIVATE_KEY) {
+        const erc8004Handler = erc8004Actions.AGENT_DISCOVER.handler;
+        await erc8004Handler?.(_runtime, _message, state, _options, callback);
         
+        const selectedAgent = state.data?.selectedAgent as { endpoint?: string; agentCardCID?: string } | undefined;
+        if (selectedAgent?.agentCardCID) {
+          try {
+            const agentCardData = await storageClient.getStorage().retrieve(selectedAgent.agentCardCID);
+            const agentCardText = await agentCardData.text();
+            const agentCard = JSON.parse(agentCardText);
+            state.data = { 
+              ...(state.data || {}), 
+              selectedAgent: { ...selectedAgent, endpoint: agentCard.endpoint } 
+            };
+            await callback?.({ text: `Retrieved agent card. Endpoint: ${agentCard.endpoint}` });
+          } catch (error: any) {
+            elizaLogger.error("Agent card retrieval error:", error);
+          }
+        }
+      } else {
         await callback?.({ 
-          text: `Querying ERC-8004 registry for agents with capabilities: ${capabilities}...` 
+          text: `Querying ERC-8004 registry for capabilities: ${capabilities}... (ERC-8004 not configured, using mock)` 
         });
-        
         await callback?.({ 
           text: `Found matching agents. Selecting best match based on reputation and pricing.` 
         });
-      },
-      examples: [
-        [
-          { user: "{{user1}}", content: { text: "Find a CSV analyzer" } },
-          { user: "{{DataRequester}}", content: { text: "Querying ERC-8004 registry..." } }
-        ],
-      ],
-    });
+      }
+    };
+    runtime.registerAction(discoverAction);
 
     runtime.registerAction({
       name: 'ANTIPHON_AT_PLAY',
@@ -178,11 +221,22 @@ async function startRequesterAgent(character: Character, directClient: DirectCli
           const file = new File([blobContent], `task-input.json`, { type: "application/json" });
           const inputCID = await storageClient.getStorage().uploadDirectory([file]);
           
+          state.data = { ...(state.data || {}), inputCID };
+          
           await callback?.({ 
             text: `Input uploaded (CID: ${inputCID}). Initiating task request to service provider...` 
           });
-        } catch (error) {
-          await callback?.({ text: "Error uploading input data." });
+
+          const selectedAgent = state.data?.selectedAgent as { endpoint?: string; address?: string } | undefined;
+          if (selectedAgent?.endpoint) {
+            state.data = { ...(state.data || {}), providerEndpoint: selectedAgent.endpoint };
+            await callback?.({ text: `Sending request to ${selectedAgent.endpoint}...` });
+          } else {
+            await callback?.({ text: "No provider endpoint found. Run AGENT_DISCOVER first." });
+          }
+        } catch (error: any) {
+          elizaLogger.error("Upload error:", error);
+          await callback?.({ text: `Error uploading input data: ${error.message}` });
         }
       },
       examples: [
@@ -193,57 +247,94 @@ async function startRequesterAgent(character: Character, directClient: DirectCli
       ],
     });
 
+    const paymentAction = x402Actions.PAYMENT_REQUEST;
+    paymentAction.handler = async (
+      _runtime: unknown,
+      _message: unknown,
+      state: ActionHandlerState,
+      _options: unknown,
+      callback: ActionHandlerCallback
+    ) => {
+      const providerEndpoint = state.data?.providerEndpoint as string;
+      const inputCID = state.data?.inputCID as string;
+
+      if (!providerEndpoint || !inputCID) {
+        await callback?.({ text: "Missing provider endpoint or input CID. Run AGENT_DISCOVER and ANTIPHON_AT_PLAY first." });
+        return;
+      }
+
+      if (process.env.X402_FACILITATOR_URL && process.env.PRIVATE_KEY) {
+        const x402Handler = x402Actions.PAYMENT_REQUEST.handler;
+        await x402Handler?.(_runtime, _message, state, _options, callback);
+      } else {
+        await callback?.({ text: "Payment required: 0.01 USDC on Base Sepolia. (x402 not configured, using mock)" });
+        await callback?.({ text: "Payment verified via Coinbase facilitator. Task execution authorized." });
+      }
+    };
+    runtime.registerAction(paymentAction);
+
+    const reputationAction = erc8004Actions.REPUTATION_POST;
+    reputationAction.handler = async (
+      _runtime: unknown,
+      _message: unknown,
+      state: ActionHandlerState,
+      _options: unknown,
+      callback: ActionHandlerCallback
+    ) => {
+      const resultCID = state.data?.resultCID as string;
+      if (resultCID) {
+        state.data = { ...(state.data || {}), resultCID, rating: 5, comment: "Excellent service" };
+      }
+
+      if (process.env.BASE_RPC_URL && process.env.PRIVATE_KEY) {
+        const erc8004Handler = erc8004Actions.REPUTATION_POST.handler;
+        await erc8004Handler?.(_runtime, _message, state, _options, callback);
+      } else {
+        await callback?.({ text: "Posting reputation feedback to ERC-8004 ReputationRegistry. (ERC-8004 not configured, using mock)" });
+      }
+    };
     runtime.registerAction({
-      name: 'PAYMENT_REQUEST',
-      description: 'Handle x402 payment challenges: parse 402 responses, sign payment authorizations, submit signed payloads',
-      similes: ['pay', 'payment', 'authorize'],
+      name: 'RESULT_RETRIEVE',
+      description: 'Retrieve analysis results from Storacha using result CID',
+      similes: ['retrieve', 'fetch', 'get results'],
       validate: async () => true,
       handler: async (
         _runtime: unknown,
         _message: unknown,
-        _state: unknown,
+        state: ActionHandlerState,
         _options: unknown,
         callback: ActionHandlerCallback
       ) => {
-        await callback?.({
-          text: "Payment required: 0.01 USDC on Base Sepolia. Processing payment authorization..."
-        });
+        const resultCID = state.data?.resultCID as string;
+        if (!resultCID) {
+          await callback?.({ text: "No result CID found. Complete payment and task execution first." });
+          return;
+        }
 
-        await callback?.({
-          text: "Payment verified via Coinbase facilitator. Task execution authorized."
-        });
+        try {
+          await callback?.({ text: `Retrieving results from Storacha (CID: ${resultCID})...` });
+          
+          const resultData = await storageClient.getStorage().retrieve(resultCID);
+          const resultText = await resultData.text();
+          const results = JSON.parse(resultText);
+          
+          await callback?.({ 
+            text: `Results retrieved:\n${JSON.stringify(results, null, 2)}` 
+          });
+        } catch (error: any) {
+          elizaLogger.error("Result retrieval error:", error);
+          await callback?.({ text: `Error retrieving results: ${error.message}` });
+        }
       },
       examples: [
         [
-          { user: "{{user1}}", content: { text: "Pay for analysis" } },
-          { user: "{{DataRequester}}", content: { text: "Processing payment..." } }
+          { user: "{{user1}}", content: { text: "Get results" } },
+          { user: "{{DataRequester}}", content: { text: "Retrieving results from Storacha..." } }
         ],
       ],
     });
 
-    runtime.registerAction({
-      name: 'REPUTATION_POST',
-      description: 'Post reputation feedback to AgentReputationRegistry after task completion',
-      similes: ['feedback', 'rate', 'review'],
-      validate: async () => true,
-      handler: async (
-        _runtime: unknown,
-        _message: unknown,
-        _state: unknown,
-        _options: unknown,
-        callback: ActionHandlerCallback
-      ) => {
-        await callback?.({
-          text: "Posting reputation feedback to ERC-8004 ReputationRegistry. Rating: 5/5, Comment: Excellent service."
-        });
-      },
-      examples: [
-        [
-          { user: "{{user1}}", content: { text: "Rate the service" } },
-          { user: "{{DataRequester}}", content: { text: "Feedback posted to on-chain registry." } }
-        ],
-      ],
-    });
+    runtime.registerAction(reputationAction);
 
     runtime.clients = await initializeClients(character, runtime);
     directClient.registerAgent(runtime);
@@ -273,57 +364,76 @@ async function startProviderAgent(character: Character, directClient: DirectClie
     const cache = initializeDbCache(character, db);
     const runtime = createAgent(character, db, cache, token);
 
+    if (process.env.BASE_RPC_URL && process.env.PRIVATE_KEY) {
+      initializeERC8004({
+        identityRegistryAddress: process.env.ERC8004_IDENTITY_REGISTRY || "",
+        reputationRegistryAddress: process.env.ERC8004_REPUTATION_REGISTRY || "",
+        rpcUrl: process.env.BASE_RPC_URL,
+        privateKey: process.env.PRIVATE_KEY,
+      });
+    }
+
+    if (process.env.X402_FACILITATOR_URL) {
+      initializeX402({
+        facilitatorUrl: process.env.X402_FACILITATOR_URL,
+        privateKey: process.env.PRIVATE_KEY || "",
+        rpcUrl: process.env.BASE_RPC_URL || "",
+        payToAddress: process.env.PAY_TO_ADDRESS || undefined,
+      });
+    }
+
     await runtime.initialize();
+
+    const erc8004Actions = getERC8004Actions();
+    const x402Actions = getX402Actions();
 
     runtime.evaluate = async () => ['AGENT_REGISTER', 'ANALYZE_DATA', 'PAYMENT_VERIFY'];
 
-    runtime.registerAction({
-      name: 'AGENT_REGISTER',
-      description: 'Register agent in ERC-8004 AgentIdentityRegistry on startup with agent card CID',
-      similes: ['register', 'enroll'],
-      validate: async () => true,
-      handler: async (
-        _runtime: unknown,
-        _message: unknown,
-        _state: unknown,
-        _options: unknown,
-        callback: ActionHandlerCallback
-      ) => {
-        await callback?.({
-          text: "Generating agent card with capabilities and pricing..."
-        });
+    const registerAction = erc8004Actions.AGENT_REGISTER;
+    registerAction.handler = async (
+      _runtime: unknown,
+      _message: unknown,
+      state: ActionHandlerState,
+      _options: unknown,
+      callback: ActionHandlerCallback
+    ) => {
+      await callback?.({
+        text: "Generating agent card with capabilities and pricing..."
+      });
 
-        try {
-          const agentCard = {
-            name: character.name,
-            capabilities: character.settings?.capabilities || [],
-            pricing: character.settings?.pricing || {},
-            endpoint: character.settings?.endpoint || "",
-          };
-          
-          const jsonString = JSON.stringify(agentCard, null, 2);
-          const blobContent = new Blob([jsonString], { type: "application/json" });
-          const file = new File([blobContent], `agent-card.json`, { type: "application/json" });
-          const agentCardCID = await storageClient.getStorage().uploadDirectory([file]);
-          
+      try {
+        const agentCard = {
+          name: character.name,
+          capabilities: character.settings?.capabilities || [],
+          pricing: character.settings?.pricing || {},
+          endpoint: character.settings?.endpoint || `http://localhost:${parseInt(getEnv("SERVER_PORT") || "3000")}/analyze`,
+        };
+        
+        const jsonString = JSON.stringify(agentCard, null, 2);
+        const blobContent = new Blob([jsonString], { type: "application/json" });
+        const file = new File([blobContent], `agent-card.json`, { type: "application/json" });
+        const agentCardCID = await storageClient.getStorage().uploadDirectory([file]);
+        
+          state.data = { ...(state.data || {}), agentCardCID };
+        
+        await callback?.({ 
+          text: `Agent card uploaded (CID: ${agentCardCID}). Registering on ERC-8004 IdentityRegistry...` 
+        });
+        
+        if (process.env.BASE_RPC_URL && process.env.PRIVATE_KEY) {
+          const erc8004Handler = erc8004Actions.AGENT_REGISTER.handler;
+          await erc8004Handler?.(_runtime, _message, state, _options, callback);
+        } else {
           await callback?.({ 
-            text: `Agent card uploaded (CID: ${agentCardCID}). Registering on ERC-8004 IdentityRegistry...` 
+            text: `Registration skipped (ERC-8004 not configured). Agent card CID: ${agentCardCID}` 
           });
-          
-          await callback?.({ 
-            text: `Registration complete. Agent available for discovery.` 
-          });
-        } catch (error) {
-          await callback?.({ text: "Error registering agent." });
         }
-      },
-      examples: [
-        [
-          { user: "{{system}}", content: { text: "Register agent" } },
-          { user: "{{DataAnalyzer}}", content: { text: "Registering on ERC-8004..." } }
-        ],
-      ],
-    });
+      } catch (error: any) {
+        elizaLogger.error("Agent registration error:", error);
+        await callback?.({ text: `Error registering agent: ${error.message}` });
+      }
+    };
+    runtime.registerAction(registerAction);
 
     runtime.registerAction({
       name: 'ANALYZE_DATA',
@@ -333,25 +443,58 @@ async function startProviderAgent(character: Character, directClient: DirectClie
       handler: async (
         _runtime: unknown,
         _message: unknown,
-        _state: unknown,
+        state: ActionHandlerState,
         _options: unknown,
         callback: ActionHandlerCallback
       ) => {
+        const inputCID = state.data?.inputCID as string;
+        if (!inputCID) {
+          await callback?.({ text: "No input CID provided." });
+          return;
+        }
+
         await callback?.({
           text: "Payment verified. Fetching input data from Storacha..."
         });
 
-        await callback?.({
-          text: "Processing data: parsing CSV, computing statistics..."
-        });
-
         try {
-          const results = {
-            rowsProcessed: 1234,
-            mean: 42.5,
-            stdDev: 12.3,
-            summary: "Analysis complete",
-          };
+          const inputData = await storageClient.getStorage().retrieve(inputCID);
+          const dataText = await inputData.text();
+          const data = JSON.parse(dataText);
+
+          await callback?.({
+            text: "Processing data: parsing CSV, computing statistics..."
+          });
+
+          let results: any = {};
+          if (data.task && typeof data.task === 'string' && data.task.includes(',')) {
+            const csvData = Papa.parse(data.task, { header: true });
+            const numericValues = csvData.data
+              .filter((row: any) => row && Object.values(row).some((v: any) => !isNaN(parseFloat(v))))
+              .map((row: any) => Object.values(row).map((v: any) => parseFloat(v)).filter((v: any) => !isNaN(v)))
+              .flat();
+
+            if (numericValues.length > 0) {
+              const mean = numericValues.reduce((a: number, b: number) => a + b, 0) / numericValues.length;
+              const variance = numericValues.reduce((sum: number, val: number) => sum + Math.pow(val - mean, 2), 0) / numericValues.length;
+              const stdDev = Math.sqrt(variance);
+
+              results = {
+                rowsProcessed: csvData.data.length,
+                mean: mean.toFixed(2),
+                stdDev: stdDev.toFixed(2),
+                summary: "CSV analysis complete",
+              };
+            }
+          } else {
+            results = {
+              rowsProcessed: 1,
+              mean: 0,
+              stdDev: 0,
+              summary: "Data processed",
+              data: data,
+            };
+          }
           
           const jsonString = JSON.stringify(results, null, 2);
           const blobContent = new Blob([jsonString], { type: "application/json" });
@@ -361,8 +504,11 @@ async function startProviderAgent(character: Character, directClient: DirectClie
           await callback?.({ 
             text: `Analysis complete! Results uploaded (CID: ${resultCID}). Summary: ${results.rowsProcessed} rows, mean=${results.mean}, std dev=${results.stdDev}` 
           });
-        } catch (error) {
-          await callback?.({ text: "Error processing data." });
+
+          state.data = { ...(state.data || {}), resultCID };
+        } catch (error: any) {
+          elizaLogger.error("Data analysis error:", error);
+          await callback?.({ text: `Error processing data: ${error.message}` });
         }
       },
       examples: [
@@ -373,42 +519,133 @@ async function startProviderAgent(character: Character, directClient: DirectClie
       ],
     });
 
-    runtime.registerAction({
-      name: 'PAYMENT_VERIFY',
-      description: 'Verify x402 payment via Coinbase facilitator, confirm USDC settlement before processing',
-      similes: ['verify', 'check payment'],
-      validate: async () => true,
-      handler: async (
-        _runtime: unknown,
-        _message: unknown,
-        _state: unknown,
-        _options: unknown,
-        callback: ActionHandlerCallback
-      ) => {
-        await callback?.({
-          text: "Verifying payment via Coinbase facilitator..."
-        });
-
-        await callback?.({
-          text: "Payment verified: 0.01 USDC settled on Base Sepolia. Proceeding with analysis."
-        });
-      },
-      examples: [
-        [
-          { user: "{{system}}", content: { text: "Verify payment" } },
-          { user: "{{DataAnalyzer}}", content: { text: "Payment verified." } }
-        ],
-      ],
-    });
+    runtime.registerAction(x402Actions.PAYMENT_VERIFY);
 
     runtime.clients = await initializeClients(character, runtime);
     directClient.registerAgent(runtime);
+
+    await startProviderExpressServer(character, storageClient, runtime);
+
+    const registerState: ActionHandlerState = { data: {}, recentMessagesData: [] };
+    await registerAction.handler?.(
+      runtime as any,
+      {} as any,
+      registerState,
+      {},
+      async (response: { text?: string }) => {
+        elizaLogger.info(response.text || "");
+        return [];
+      }
+    );
 
     elizaLogger.debug(`Started ${character.name} (Provider) as ${runtime.agentId}`);
     return runtime;
   } catch (error) {
     elizaLogger.error(`Error starting provider agent:`, error);
     throw error;
+  }
+}
+
+async function startProviderExpressServer(character: Character, storageClient: any, runtime: AgentRuntime) {
+  if (!process.env.X402_FACILITATOR_URL || !process.env.PAY_TO_ADDRESS) {
+    elizaLogger.warn("x402 not configured. Express server not started.");
+    return;
+  }
+
+  try {
+    const { paymentMiddleware, x402ResourceServer } = await import("@x402/express");
+    const { HTTPFacilitatorClient } = await import("@x402/core/server");
+    const { ExactEvmScheme } = await import("@x402/evm/exact/server");
+
+    const facilitatorClient = new HTTPFacilitatorClient({ 
+      url: process.env.X402_FACILITATOR_URL 
+    });
+    const resourceServer = new x402ResourceServer(facilitatorClient)
+      .register("eip155:84532", new ExactEvmScheme());
+
+    const providerPort = parseInt(character.settings?.endpoint?.split(':')[2]?.split('/')[0] || "3001");
+    const app = express();
+    app.use(express.json());
+
+    const pricing = character.settings?.pricing as { baseRate?: number; currency?: string } | undefined;
+    const price = `$${pricing?.baseRate || 0.01}`;
+
+    app.use(
+      paymentMiddleware(
+        {
+          "POST /analyze": {
+            accepts: {
+              scheme: "exact",
+              price,
+              network: "eip155:84532",
+              payTo: process.env.PAY_TO_ADDRESS as `0x${string}`,
+            },
+            description: "Data analysis service",
+          },
+        },
+        resourceServer,
+      ),
+    );
+
+    app.post("/analyze", async (req: express.Request, res: express.Response) => {
+      try {
+        const { inputCID, requirements } = req.body;
+        if (!inputCID) {
+          return res.status(400).json({ error: "inputCID required" });
+        }
+
+        elizaLogger.info(`Processing analysis request for CID: ${inputCID}`);
+
+        const inputData = await storageClient.getStorage().retrieve(inputCID);
+        const dataText = await inputData.text();
+        const data = JSON.parse(dataText);
+
+        let results: any = {};
+        if (data.task && typeof data.task === 'string' && data.task.includes(',')) {
+          const csvData = Papa.parse(data.task, { header: true });
+          const numericValues = csvData.data
+            .filter((row: any) => row && Object.values(row).some((v: any) => !isNaN(parseFloat(v))))
+            .map((row: any) => Object.values(row).map((v: any) => parseFloat(v)).filter((v: any) => !isNaN(v)))
+            .flat();
+
+          if (numericValues.length > 0) {
+            const mean = numericValues.reduce((a: number, b: number) => a + b, 0) / numericValues.length;
+            const variance = numericValues.reduce((sum: number, val: number) => sum + Math.pow(val - mean, 2), 0) / numericValues.length;
+            const stdDev = Math.sqrt(variance);
+
+            results = {
+              rowsProcessed: csvData.data.length,
+              mean: mean.toFixed(2),
+              stdDev: stdDev.toFixed(2),
+              summary: requirements || "CSV analysis complete",
+            };
+          }
+        } else {
+          results = {
+            rowsProcessed: 1,
+            summary: requirements || "Data processed",
+            data: data,
+          };
+        }
+
+        const jsonString = JSON.stringify(results, null, 2);
+        const blobContent = new Blob([jsonString], { type: "application/json" });
+        const file = new File([blobContent], `analysis-results.json`, { type: "application/json" });
+        const resultCID = await storageClient.getStorage().uploadDirectory([file]);
+
+        res.json({ resultCID, status: "completed", results });
+      } catch (error: any) {
+        elizaLogger.error("Analysis endpoint error:", error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    app.listen(providerPort, () => {
+      elizaLogger.success(`Provider Express server running on port ${providerPort}`);
+      elizaLogger.info(`Analysis endpoint: http://localhost:${providerPort}/analyze`);
+    });
+  } catch (error: any) {
+    elizaLogger.error("Failed to start Express server:", error);
   }
 }
 
@@ -430,7 +667,7 @@ const checkPortAvailable = (port: number): Promise<boolean> => {
 
 const startAgents = async () => {
   const directClient = new DirectClient();
-  let serverPort = parseInt(settings.SERVER_PORT || "3000");
+  let serverPort = parseInt(getEnv("SERVER_PORT") || "3000");
   const args = parseArguments();
 
   const agentMode = args.mode || process.env.AGENT_MODE || "both";
@@ -465,7 +702,7 @@ const startAgents = async () => {
 
   directClient.start(serverPort);
 
-  if (serverPort !== parseInt(settings.SERVER_PORT || "3000")) {
+  if (serverPort !== parseInt(getEnv("SERVER_PORT") || "3000")) {
     elizaLogger.log(`Server started on alternate port ${serverPort}`);
   }
 

@@ -1,12 +1,11 @@
-import { Character, defaultCharacter, ModelProviderName, Plugin } from "@elizaos/core";
+import { type Character, mergeCharacterDefaults, type Plugin } from "@elizaos/core";
 import { storagePlugin } from "@storacha/elizaos-plugin";
 
-export const agentRequester: Character = {
-    ...defaultCharacter,
+export const agentRequester: Character = mergeCharacterDefaults({
     name: "DataRequester",
     username: "data_requester_01",
     plugins: [storagePlugin as unknown as Plugin],
-    modelProvider: ModelProviderName.OPENROUTER,
+    modelProvider: "OPENROUTER" as any,
     settings: {
         secrets: {
             STORACHA_AGENT_PRIVATE_KEY: process.env.STORACHA_AGENT_PRIVATE_KEY,
@@ -139,6 +138,6 @@ You communicate clearly, explain discovery and payment steps, and provide status
             "highlight successful task coordination examples",
             "discuss reputation trends in the marketplace",
             "educate about ERC-8004 and x402 integration",
-        ],
-    },
-};
+    ],
+  },
+});

@@ -5,7 +5,8 @@
   "main": "index.ts",
   "type": "module",
   "scripts": {
-    "start": "ts-node index.ts"
+    "start": "tsx index.ts",
+    "test:coordination": "node test-coordination.js"
   },
   "keywords": [
     "elizaos",
@@ -19,8 +20,11 @@
   "license": "ISC",
   "packageManager": "pnpm@10.19.0",
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^25.0.10",
+    "@types/papaparse": "^5.5.2",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
@@ -31,13 +35,15 @@
     "@x402/core": "^2.2.0",
     "@x402/evm": "^2.2.0",
     "@x402/express": "^2.2.0",
+    "axios": "^1.13.3",
     "dotenv": "^17.2.3",
-    "ethers": "^6.16.0",
-    "express": "^5.2.1",
+    "express": "^4.21.1",
     "fs": "0.0.1-security",
     "papaparse": "^5.5.3",
     "path": "^0.12.7",
+    "path-to-regexp": "0.1.12",
     "sharp": "^0.34.5",
+    "viem": "^2.45.0",
     "whatwg-url": "^7.1.0",
     "ws": "^8.19.0",
     "zod": "^4.3.6"

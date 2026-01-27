@@ -199,8 +199,7 @@ flowchart LR
 | **Validation** | Zod; PapaParse for CSV |
 | **Monitoring** | OpenTelemetry, Prometheus, Grafana (planned) |
 
-**Key deps:** `@storacha/elizaos-plugin`, `@elizaos/core`, `ethers`, `express`, `papaparse`, `zod`, `sharp`, `ws`.  
-**Planned:** `@x402/core`, `@x402/evm`, `@x402/express`.
+**Key deps:** `@storacha/elizaos-plugin`, `@elizaos/core`, `@x402/core`, `@x402/evm`, `@x402/express`, `ethers`, `express`, `papaparse`, `zod`, `sharp`, `ws`, `viem`.
 
 ---
 
@@ -210,21 +209,22 @@ flowchart LR
 Rachax402/
 ├── README.md           # This file
 └── antiphon/           # ElizaOS + Storacha reference app
-    ├── index.ts        # Agent runtime, DirectClient, bootstrap
-    ├── contracts/      # smart contracts
-    ├── elizaos/
-        ├── Provider/    #Agent2: Service Provider
-            ├── character.ts   
-        ├── Requestor/   #Agent1: Requests for a Data Analysis Service
-            ├── character.ts 
+    ├── index.ts        # Agent runtime, DirectClient, workflow orchestration
+    ├── elizaOS/
+    │   ├── Provider/    # Agent B: Service Provider (Data Analyzer)
+    │   │   └── character.ts   
+    │   └── Requester/   # Agent A: Task Requester (Data Client)
+    │       └── character.ts 
     ├── plugins/
-    │   ├── erc8004.ts  # ERC-8004 plugin
-    │   └── x402.ts     # x402 plugin
+    │   ├── erc8004/
+    │   │   └── index.ts  # ERC-8004 plugin (AGENT_REGISTER, AGENT_DISCOVER, REPUTATION_POST, REPUTATION_QUERY)
+    │   └── x402/
+    │       └── index.ts  # x402 plugin (PAYMENT_REQUEST, PAYMENT_VERIFY)
     ├── storacha/
-        └── upload.ts
-        └── retrieve.ts
+    │   ├── upload.ts
+    │   └── retrieve.ts
     ├── package.json
-    └── .env.example    # OPENROUTER, Storacha, Base RPC, x402 facilitator
+    └── .env.example    # OPENROUTER, Storacha, Base RPC, ERC-8004 contracts, x402 facilitator
 ```
 
 ---
@@ -245,8 +245,104 @@ Rachax402/
    ```bash
    pnpm start
    ```
-5. **Base / x402 (when wired up)**
-   - `BASE_RPC_URL`, `X402_FACILITATOR_URL` per [Base](https://docs.base.org/) and [x402](https://www.x402.org/) / [coinbase/x402](https://github.com/coinbase/x402).
+5. **Base Sepolia / ERC-8004 / x402**
+   - Set `BASE_RPC_URL` (e.g., `https://sepolia.base.org`)
+   - Set `PRIVATE_KEY` (Ethereum private key with Base Sepolia ETH)
+   - Set `ERC8004_IDENTITY_REGISTRY` and `ERC8004_REPUTATION_REGISTRY` (contract addresses)
+   - Set `X402_FACILITATOR_URL` (e.g., `https://facilitator.x402.org`)
+   - Set `PAY_TO_ADDRESS` (Provider's receiving address for payments)
+   - See [Base](https://docs.base.org/), [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004), [x402](https://www.x402.org/)
+
+---
+
+## Complete End-to-End Workflow
+
+### Provider Agent (Agent B) Startup
+
+1. **Agent Initialization**
+   - ElizaOS runtime starts with Provider character configuration
+   - Storacha storage client initialized
+   - ERC-8004 and x402 plugins loaded
+
+2. **Agent Card Generation & Registration**
+   - Generates agent card JSON: `{ name, capabilities, pricing, endpoint }`
+   - Uploads agent card to Storacha → receives `agentCardCID`
+   - Calls `AGENT_REGISTER` action → on-chain transaction to ERC-8004 IdentityRegistry
+   - Agent address ↔ `agentCardCID` association stored on-chain
+
+3. **Express Server with x402 Middleware**
+   - Starts Express server on configured port (default: 3001)
+   - Registers x402 payment middleware for `POST /analyze` endpoint
+   - Configures payment: amount from character settings, network: `eip155:84532`, payTo: `PAY_TO_ADDRESS`
+   - Server ready to accept payment-gated requests
+
+### Requester Agent (Agent A) Operation
+
+1. **Agent Discovery**
+   - User: "Analyze this CSV dataset"
+   - Agent A calls `AGENT_DISCOVER` action with capability tags
+   - Queries ERC-8004 IdentityRegistry → finds matching agents
+   - Fetches reputation scores from ReputationRegistry
+   - Retrieves agent card from Storacha using CID
+   - Selects best agent based on reputation + pricing
+
+2. **Task Preparation**
+   - Agent A calls `ANTIPHON_AT_PLAY` action
+   - Uploads input dataset to Storacha → receives `inputCID`
+   - Stores provider endpoint from agent card
+
+3. **Payment & Execution**
+   - Agent A calls `PAYMENT_REQUEST` action
+   - Sends task request to Provider's `/analyze` endpoint with `inputCID`
+   - Provider returns HTTP 402 with payment requirements
+   - Agent A signs payment payload using wallet (x402 SDK)
+   - Retries request with `x-402-payment` header
+   - Provider verifies payment via facilitator → processes data
+   - Provider uploads results to Storacha → returns `resultCID`
+
+4. **Result Retrieval & Feedback**
+   - Agent A calls `RESULT_RETRIEVE` action
+   - Fetches results from Storacha using `resultCID`
+   - Agent A calls `REPUTATION_POST` action
+   - Posts rating + comment + `resultCID` proof to ReputationRegistry
+
+### Provider Service Endpoint
+
+**`POST /analyze`** (payment-gated via x402 middleware)
+
+**Request:**
+```json
+{
+  "action": "analyze",
+  "inputCID": "bafybeig...",
+  "requirements": "statistical summary and trend analysis"
+}
+```
+
+**Response (402 if unpaid):**
+```json
+{
+  "error": "Payment required",
+  "price": "$0.01",
+  "currency": "USDC",
+  "network": "eip155:84532",
+  "payTo": "0x..."
+}
+```
+
+**Response (200 after payment):**
+```json
+{
+  "resultCID": "bafybeih...",
+  "status": "completed",
+  "results": {
+    "rowsProcessed": 1234,
+    "mean": "42.5",
+    "stdDev": "12.3",
+    "summary": "CSV analysis complete"
+  }
+}
+```
 
 ---
 

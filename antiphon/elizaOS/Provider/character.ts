@@ -1,12 +1,11 @@
-import { Character, defaultCharacter, ModelProviderName, Plugin } from "@elizaos/core";
+import { type Character, mergeCharacterDefaults, type Plugin } from "@elizaos/core";
 import { storagePlugin } from "@storacha/elizaos-plugin";
 
-export const agentProvider: Character = {
-  ...defaultCharacter,
+export const agentProvider: Character = mergeCharacterDefaults({
   name: "DataAnalyzer",
   username: "data_analyzer_01",
   plugins: [storagePlugin as unknown as Plugin],
-  modelProvider: ModelProviderName.OPENROUTER,
+  modelProvider: "OPENROUTER" as any,
   settings: {
     secrets: {
       STORACHA__AGENT_PRIVATE_KEY: process.env.STORACHA_AGENT_PRIVATE_KEY,
@@ -145,4 +144,4 @@ You communicate professionally, confirm payment verification, and provide clear 
       "educate about data analysis best practices",
     ],
   },
-};
+});
