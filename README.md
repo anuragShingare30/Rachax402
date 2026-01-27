@@ -1,4 +1,4 @@
-# Rachax402
+# Rachax402: ![Agent Economies](https://img.shields.io/badge/Fueling--Open--Ended%20Agent%20Economies-neon)
 
 [![Storacha](https://img.shields.io/badge/Storacha-IPFS%20%2B%20Filecoin-red)](https://docs.storacha.network/)
 [![ElizaOS](https://img.shields.io/badge/ElizaOS-1.7+-blue?logo=eliza)](https://github.com/elizaos/eliza)
