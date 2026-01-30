@@ -7,7 +7,6 @@ import {
   type Character,
 } from "@elizaos/core";
 import { bootstrapPlugin } from "@elizaos/plugin-bootstrap";
-import fs from "fs";
 import net from "net";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -16,6 +15,7 @@ import { agentRequester } from "./elizaOS/Requester/character.js";
 import { agentProvider } from "./elizaOS/Provider/data-analyser/character.js";
 import { getERC8004Actions, type ERC8004Config } from "./plugins/erc8004/index.js";
 import { getX402Actions, type X402Config } from "./plugins/x402/index.js";
+import sqlPlugin from "@elizaos/plugin-sql";
 import express from "express";
 import Papa from "papaparse";
 
@@ -64,23 +64,21 @@ function parseArguments() {
   return args;
 }
 
-function initializeDatabase(dataDir: string) {
+function createCacheStub() {
   return {
-    init: async () => Promise.resolve(),
-    close: async () => Promise.resolve(),
-  };
-}
-
-function initializeDbCache(character: Character, db: any) {
-  return {
-    get: async (key: string) => null,
-    set: async (key: string, value: any) => {},
-    delete: async (key: string) => {},
+    get: async (_key: string) => undefined,
+    set: async (_key: string, _value: unknown) => {},
+    delete: async (_key: string) => {},
   };
 }
 
 async function initializeClients(character: Character, runtime: AgentRuntime) {
-  return [];
+  try {
+    const { initializeClients: initClients } = await import("./clients/index.js");
+    return initClients(character, runtime);
+  } catch {
+    return [];
+  }
 }
 
 function getRequesterWalletConfig(): { erc8004: ERC8004Config | null; x402: X402Config | null } {
@@ -124,7 +122,6 @@ function getProviderWalletConfig(): { erc8004: ERC8004Config | null; x402: X402C
 
 export function createAgent(
   character: Character,
-  db: any,
   cache: any,
   token: string
 ) {
@@ -134,9 +131,8 @@ export function createAgent(
     character.name
   );
 
-  const plugins = [bootstrapPlugin, ...(character.plugins ?? [])].filter(Boolean);
+  const plugins = [bootstrapPlugin, sqlPlugin, ...(character.plugins ?? [])].filter(Boolean);
   return new AgentRuntime({
-    databaseAdapter: db,
     token,
     modelProvider: character.modelProvider,
     evaluators: [],
@@ -156,16 +152,8 @@ async function startRequesterAgent(character: Character, directClient: DirectCli
     character.username ??= character.name;
 
     const token = getTokenForProvider(character.modelProvider, character);
-    const dataDir = path.join(__dirname, "../data");
-
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    const db = initializeDatabase(dataDir);
-    await db.init();
-    const cache = initializeDbCache(character, db);
-    const runtime = createAgent(character, db, cache, token);
+    const cache = createCacheStub();
+    const runtime = createAgent(character, cache, token);
 
     const requesterWallet = getRequesterWalletConfig();
     await runtime.initialize();
@@ -381,16 +369,8 @@ async function startProviderAgent(character: Character, directClient: DirectClie
     character.username ??= character.name;
 
     const token = getTokenForProvider(character.modelProvider, character);
-    const dataDir = path.join(__dirname, "../data");
-
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-
-    const db = initializeDatabase(dataDir);
-    await db.init();
-    const cache = initializeDbCache(character, db);
-    const runtime = createAgent(character, db, cache, token);
+    const cache = createCacheStub();
+    const runtime = createAgent(character, cache, token);
 
     const providerWallet = getProviderWalletConfig();
     await runtime.initialize();
@@ -681,13 +661,34 @@ const checkPortAvailable = (port: number): Promise<boolean> => {
   });
 };
 
+async function runPluginSqlMigrations() {
+  const mockRuntime: any = {
+    agentId: "migration-runner",
+    logger: { info: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
+    getSetting: (key: string) => process.env[key] ?? undefined,
+    isReady: () => Promise.reject(new Error("Database adapter not registered")),
+    registerDatabaseAdapter: function (this: any, adapter: any) {
+      this._adapter = adapter;
+    },
+  };
+  mockRuntime.registerDatabaseAdapter = mockRuntime.registerDatabaseAdapter.bind(mockRuntime);
+  await sqlPlugin.init?.({}, mockRuntime);
+  const adapter = mockRuntime._adapter;
+  if (adapter?.runPluginMigrations) {
+    await adapter.init?.();
+    await adapter.runPluginMigrations([sqlPlugin], {});
+  }
+}
+
 const startAgents = async () => {
   const directClient = new DirectClient();
   let serverPort = parseInt(getEnv("SERVER_PORT") || "3000");
   const args = parseArguments();
 
   const agentMode = args.mode || process.env.AGENT_MODE || "both";
-  
+
+  await runPluginSqlMigrations();
+
   try {
     if (agentMode === "requester" || agentMode === "both") {
       await startRequesterAgent(agentRequester, directClient);

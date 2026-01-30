@@ -21,6 +21,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.19.0",
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.10",
     "@types/papaparse": "^5.5.2",
@@ -29,14 +30,17 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@elizaos/adapter-sqlite": "0.25.6-alpha.1",
     "@elizaos/client-direct": "^0.25.9",
     "@elizaos/core": "^1.7.2",
     "@elizaos/plugin-bootstrap": "^1.7.2",
+    "@elizaos/plugin-sql": "^1.7.2",
     "@storacha/elizaos-plugin": "^1.2.1",
     "@x402/core": "^2.2.0",
     "@x402/evm": "^2.2.0",
     "@x402/express": "^2.2.0",
     "axios": "^1.13.3",
+    "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.3",
     "express": "^4.21.1",
     "fs": "0.0.1-security",
@@ -66,6 +70,9 @@
       "allowedVersions": {
         "zod": "4"
       }
-    }
+    },
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }
