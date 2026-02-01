@@ -15,10 +15,17 @@
 
 ## Build and Testing
 
+- Install **foundry** if not installed already. You can follow the below steps:
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+source ~/.bashrc 
+foundryup
+```
+
 - To install necessary libraries and build the contracts, run:
 ```bash
 cd antiphon/contracts/rachax402
-forge install
+forge install foundry-rs/forge-std
 forge build
 ```
 
@@ -36,4 +43,12 @@ forge test --match-contract AgentReputationRegistryTest -vvv
 ```bash
 cd antiphon/contracts/rachax402
 forge coverage
+```
+
+
+## Deployed Contracts Address(Base Sepolia Testnet)
+
+```env
+ERC8004_REPUTATION_REGISTRY="0x54AE..."
+ERC8004_REPUTATION_REGISTRY="0x78FT..."
 ```

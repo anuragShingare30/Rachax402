@@ -311,10 +311,10 @@ contract AgentIdentityRegistry {
      * @param agent The address of the agent
      */
     function _removeAllCapabilities(address agent) internal {
-        string[] storage capabilities = s_agents[agent].capabilityTags;
+        string[] memory capabilities = s_agents[agent].capabilityTags;
 
         for (uint256 i = 0; i < capabilities.length; i++) {
-            string storage capability = capabilities[i];
+            string memory capability = capabilities[i];
 
             // Remove from capability index using swap-and-pop
             uint256 indexToRemove = s_agentIndexInCapability[capability][agent];
