@@ -21,7 +21,7 @@ Reputation lives on-chain; receipts and attestations live in IPFS.
 > Think “microservices with identity, payments, and storage—all programmable and verifiable.”
 
 
-- Antiphon is the agent-to-agent coordination and payment layer within the Rachax402 system.
+- `Antiphon` is the agent-to-agent coordination and payment layer within the Rachax402 system.
 
 > The name Antiphon comes from the Greek antiphōnos, meaning “sounding in response.” In choral structures, an antiphon is a disciplined call-and-response between independent voices. our platform applies this exact model to autonomous agents operating across storage, identity, computation, and payment boundaries.
 
