@@ -21,7 +21,7 @@ Reputation lives on-chain; receipts and attestations live in IPFS.
 > Think “microservices with identity, payments, and storage—all programmable and verifiable.”
 
 
-- Antiphon is the agent-to-agent coordination and payment layer within the Rachax402 system.
+- `Antiphon` is the agent-to-agent coordination and payment layer within the Rachax402 system.
 
 > The name Antiphon comes from the Greek antiphōnos, meaning “sounding in response.” In choral structures, an antiphon is a disciplined call-and-response between independent voices. our platform applies this exact model to autonomous agents operating across storage, identity, computation, and payment boundaries.
 
@@ -322,97 +322,6 @@ Rachax402/
    - Set `X402_FACILITATOR_URL` (e.g., `https://facilitator.x402.org`)
    - Set `PAY_TO_ADDRESS` (Provider's receiving address for payments)
    - See [Base](https://docs.base.org/), [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004), [x402](https://www.x402.org/)
-
----
-
-## Complete End-to-End Workflow
-
-### Provider Agent (Agent B) Startup
-
-1. **Agent Initialization**
-   - ElizaOS runtime starts with Provider character configuration
-   - Storacha storage client initialized
-   - ERC-8004 and x402 plugins loaded
-
-2. **Agent Card Generation & Registration**
-   - Generates agent card JSON: `{ name, capabilities, pricing, endpoint }`
-   - Uploads agent card to Storacha → receives `agentCardCID`
-   - Calls `AGENT_REGISTER` action → on-chain transaction to ERC-8004 IdentityRegistry
-   - Agent address ↔ `agentCardCID` association stored on-chain
-
-3. **Express Server with x402 Middleware**
-   - Starts Express server on configured port (default: 3001)
-   - Registers x402 payment middleware for `POST /analyze` endpoint
-   - Configures payment: amount from character settings, network: `eip155:84532`, payTo: `PAY_TO_ADDRESS`
-   - Server ready to accept payment-gated requests
-
-### Requester Agent (Agent A) Operation
-
-1. **Agent Discovery**
-   - User: "Analyze this CSV dataset"
-   - Agent A calls `AGENT_DISCOVER` action with capability tags
-   - Queries ERC-8004 IdentityRegistry → finds matching agents
-   - Fetches reputation scores from ReputationRegistry
-   - Retrieves agent card from Storacha using CID
-   - Selects best agent based on reputation + pricing
-
-2. **Task Preparation**
-   - Agent A calls `ANTIPHON_AT_PLAY` action
-   - Uploads input dataset to Storacha → receives `inputCID`
-   - Stores provider endpoint from agent card
-
-3. **Payment & Execution**
-   - Agent A calls `PAYMENT_REQUEST` action
-   - Sends task request to Provider's `/analyze` endpoint with `inputCID`
-   - Provider returns HTTP 402 with payment requirements
-   - Agent A signs payment payload using wallet (x402 SDK)
-   - Retries request with `x-402-payment` header
-   - Provider verifies payment via facilitator → processes data
-   - Provider uploads results to Storacha → returns `resultCID`
-
-4. **Result Retrieval & Feedback**
-   - Agent A calls `RESULT_RETRIEVE` action
-   - Fetches results from Storacha using `resultCID`
-   - Agent A calls `REPUTATION_POST` action
-   - Posts rating + comment + `resultCID` proof to ReputationRegistry
-
-### Provider Service Endpoint
-
-**`POST /analyze`** (payment-gated via x402 middleware)
-
-**Request:**
-```json
-{
-  "action": "analyze",
-  "inputCID": "bafybeig...",
-  "requirements": "statistical summary and trend analysis"
-}
-```
-
-**Response (402 if unpaid):**
-```json
-{
-  "error": "Payment required",
-  "price": "$0.01",
-  "currency": "USDC",
-  "network": "eip155:84532",
-  "payTo": "0x..."
-}
-```
-
-**Response (200 after payment):**
-```json
-{
-  "resultCID": "bafybeih...",
-  "status": "completed",
-  "results": {
-    "rowsProcessed": 1234,
-    "mean": "42.5",
-    "stdDev": "12.3",
-    "summary": "CSV analysis complete"
-  }
-}
-```
 
 ---
 
