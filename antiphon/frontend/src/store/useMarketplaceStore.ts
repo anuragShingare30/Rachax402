@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ServiceType = 'analyze' | 'store';
+export type ServiceType = 'analyze' | 'store' | 'retrieve';
 
 export interface AgentInfo {
   address: string;
@@ -14,13 +14,16 @@ export interface AnalysisResults {
   statistics: {
     rowCount: number;
     columnCount: number;
-    numericalStats: Record<string, {
-      mean: number;
-      median: number;
-      stdDev: number;
-      min: number;
-      max: number;
-    }>;
+    numericalStats: Record<
+      string,
+      {
+        mean: number;
+        median: number;
+        stdDev: number;
+        min: number;
+        max: number;
+      }
+    >;
   };
   insights: string[];
   resultCID: string;
@@ -30,9 +33,11 @@ export interface StorageResults {
   cid: string;
   fileName: string;
   fileSize: number;
+  retrievedDataBase64?: string;
+  retrievedContentType?: string;
 }
 
-interface Step {
+export interface Step {
   id: number;
   label: string;
   icon: string;
@@ -40,22 +45,25 @@ interface Step {
   desc: string;
 }
 
+// ── analysisSteps (1-6) maps to coordinator stepNums ──────────────────────────
 export const analysisSteps: Step[] = [
-  { id: 1, label: 'Discovery', icon: '🔍', protocol: 'emerald', desc: 'Finding agents via ERC-8004' },
-  { id: 2, label: 'Reputation', icon: '⭐', protocol: 'emerald', desc: 'Checking on-chain ratings' },
-  { id: 3, label: 'Upload', icon: '📤', protocol: 'orange', desc: 'Uploading to Storacha' },
-  { id: 4, label: 'Payment', icon: '💳', protocol: 'indigo', desc: 'Signing x402 payment' },
-  { id: 5, label: 'Processing', icon: '⚙️', protocol: 'violet', desc: 'AgentB analyzing data' },
-  { id: 6, label: 'Results', icon: '✅', protocol: 'green', desc: 'Retrieving results' },
+  { id: 1, label: 'Submitted',  icon: '📤', protocol: 'orange',  desc: 'Task sent to AgentA' },
+  { id: 2, label: 'Discovery',  icon: '🔍', protocol: 'emerald', desc: 'ERC-8004 on-chain lookup' },
+  { id: 3, label: 'Payment',    icon: '💳', protocol: 'indigo',  desc: 'AgentA pays via x402' },
+  { id: 4, label: 'Processing', icon: '⚙️', protocol: 'violet',  desc: 'AgentB analyzing CSV' },
+  { id: 5, label: 'Reputation', icon: '⭐', protocol: 'emerald', desc: 'Rating posted on-chain' },
+  { id: 6, label: 'Results',    icon: '✅', protocol: 'green',   desc: 'Report ready' },
 ];
 
+// ── storageSteps (1-4) maps to coordinator stepNums ───────────────────────────
 export const storageSteps: Step[] = [
-  { id: 1, label: 'Discovery', icon: '🔍', protocol: 'emerald', desc: 'Finding storage service' },
-  { id: 2, label: 'Payment', icon: '💳', protocol: 'indigo', desc: 'Signing x402 payment' },
-  { id: 3, label: 'Upload', icon: '📤', protocol: 'orange', desc: 'Uploading to Storacha' },
-  { id: 4, label: 'Complete', icon: '✅', protocol: 'green', desc: 'File stored on IPFS' },
+  { id: 1, label: 'Submitted',  icon: '📤', protocol: 'orange',  desc: 'Task sent to AgentA' },
+  { id: 2, label: 'Discovery',  icon: '🔍', protocol: 'emerald', desc: 'ERC-8004 on-chain lookup' },
+  { id: 3, label: 'Payment',    icon: '💳', protocol: 'indigo',  desc: 'AgentA pays via x402' },
+  { id: 4, label: 'Complete',   icon: '✅', protocol: 'green',   desc: 'File stored on IPFS' },
 ];
 
+// ── PaymentContext kept for backwards compat (no longer used in main flow) ────
 export interface PaymentContext {
   paymentRequired: string;
   url: string;
@@ -63,6 +71,7 @@ export interface PaymentContext {
   buildInit: () => RequestInit;
 }
 
+// ── State interface ───────────────────────────────────────────────────────────
 interface MarketplaceState {
   service: ServiceType;
   currentStep: number;
@@ -75,12 +84,14 @@ interface MarketplaceState {
   storageResults: StorageResults | null;
   txHash: string | null;
   error: string | null;
-  showPaymentModal: boolean;
   showRatingModal: boolean;
   paymentContext: PaymentContext | null;
 
+  /** SSE live log lines from AgentA coordinator */
+  liveLog: string[];
+
+  // Actions
   setService: (s: ServiceType) => void;
-  setPaymentContext: (ctx: PaymentContext | null) => void;
   setCurrentStep: (step: number) => void;
   setIsProcessing: (v: boolean) => void;
   setFile: (f: File | null) => void;
@@ -91,11 +102,18 @@ interface MarketplaceState {
   setStorageResults: (r: StorageResults | null) => void;
   setTxHash: (h: string | null) => void;
   setError: (e: string | null) => void;
-  setShowPaymentModal: (v: boolean) => void;
   setShowRatingModal: (v: boolean) => void;
+  setPaymentContext: (ctx: PaymentContext | null) => void;
+
+  /** Replace full live log (called on each SSE step event) */
+  setLiveLog: (lines: string[]) => void;
+  /** Append a single line to live log */
+  appendLiveLog: (line: string) => void;
+
   reset: () => void;
 }
 
+// ── Initial state ─────────────────────────────────────────────────────────────
 const initialState = {
   service: 'analyze' as ServiceType,
   currentStep: 0,
@@ -108,26 +126,44 @@ const initialState = {
   storageResults: null,
   txHash: null,
   error: null,
-  showPaymentModal: false,
   showRatingModal: false,
   paymentContext: null,
+  liveLog: [] as string[],
 };
 
+// ── Store ─────────────────────────────────────────────────────────────────────
 export const useMarketplaceStore = create<MarketplaceState>((set) => ({
   ...initialState,
-  setService: (service) => set({ service, currentStep: 0, isProcessing: false, file: null, error: null, analysisResults: null, storageResults: null, txHash: null }),
-  setCurrentStep: (currentStep) => set({ currentStep }),
-  setIsProcessing: (isProcessing) => set({ isProcessing }),
-  setFile: (file) => set({ file }),
-  setInputCID: (inputCID) => set({ inputCID }),
-  setResultCID: (resultCID) => set({ resultCID }),
-  setDiscoveredAgent: (discoveredAgent) => set({ discoveredAgent }),
-  setAnalysisResults: (analysisResults) => set({ analysisResults }),
+
+  setService: (service) =>
+    set({
+      service,
+      currentStep: 0,
+      isProcessing: false,
+      file: null,
+      error: null,
+      analysisResults: null,
+      storageResults: null,
+      txHash: null,
+      liveLog: [],
+    }),
+
+  setCurrentStep:    (currentStep)    => set({ currentStep }),
+  setIsProcessing:   (isProcessing)   => set({ isProcessing }),
+  setFile:           (file)           => set({ file }),
+  setInputCID:       (inputCID)       => set({ inputCID }),
+  setResultCID:      (resultCID)      => set({ resultCID }),
+  setDiscoveredAgent:(discoveredAgent)=> set({ discoveredAgent }),
+  setAnalysisResults:(analysisResults)=> set({ analysisResults }),
   setStorageResults: (storageResults) => set({ storageResults }),
-  setTxHash: (txHash) => set({ txHash }),
-  setError: (error) => set({ error }),
-  setShowPaymentModal: (showPaymentModal) => set({ showPaymentModal }),
-  setShowRatingModal: (showRatingModal) => set({ showRatingModal }),
+  setTxHash:         (txHash)         => set({ txHash }),
+  setError:          (error)          => set({ error }),
+  setShowRatingModal:(showRatingModal)=> set({ showRatingModal }),
   setPaymentContext: (paymentContext) => set({ paymentContext }),
+
+  // SSE log actions
+  setLiveLog:    (liveLog) => set({ liveLog }),
+  appendLiveLog: (line)    => set((s) => ({ liveLog: [...s.liveLog, line] })),
+
   reset: () => set(initialState),
 }));

@@ -1,8 +1,7 @@
 /**
- * Agent B Server - Complete Implementation
+ * Agent B Server
  * 
  * This server acts as a PAYMENT GATEWAY + PROCESSOR
- * It does NOT run ElizaOS - instead it contains the processing logic directly
  * 
  * Flow:
  * 1. Receives HTTP POST from Agent A
@@ -12,13 +11,6 @@
  * 5. This handler processes the CSV analysis
  * 6. Returns resultCID to Agent A
  * 
- * 
- * https://bafkreidvue5jvvuns5a3l3ygziw5z6arymfl3fjotv4o6wlqgsmxycpjze.ipfs.w3s.link/
- * 
- * Test:
- * curl -X POST -F "inputCID=bafkreig6xv5nwphfmvcnektpnojts33jqcuam7bmye2pb54adnrtccjlsu" http://localhost:8001/analyze
- * curl http://localhost:8001/health
- * 
  */
 
 import express from 'express';
@@ -26,6 +18,8 @@ import cors from 'cors';
 import { paymentMiddleware } from '@x402/express';
 import { x402ResourceServer, HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
+import { declareDiscoveryExtension } from '@x402/extensions/bazaar';
+import { facilitator as cdpFacilitator } from '@coinbase/x402';
 import Papa from 'papaparse';
 import { uploadFileToStoracha } from './initStoracha.js';
 import dotenv from 'dotenv';
@@ -35,7 +29,6 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PROVIDER_PORT || 8001;
 
-// Middleware
 app.use(cors({
   exposedHeaders: ['PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE']
 }));
@@ -44,54 +37,97 @@ app.use(express.json());
 // Configuration
 const RECIPIENT_ADDRESS = process.env.PROVIDER_WALLET_ADDRESS;
 const FACILITATOR_URL = process.env.FACILITATOR_URL || 'https://x402.org/facilitator';
+const USE_CDP = !!(process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET);
+const NETWORK = process.env.X402_NETWORK || (USE_CDP ? 'eip155:8453' : 'eip155:84532');
 
 console.log('🔧 Initializing Agent B Server...');
 console.log(`   Recipient: ${RECIPIENT_ADDRESS}`);
-console.log(`   Facilitator: ${FACILITATOR_URL}`);
+console.log(`   Facilitator: ${USE_CDP ? 'CDP (production)' : FACILITATOR_URL}`);
+console.log(`   Network: ${NETWORK}`);
 
-/**
- * Initialize Storacha client for Agent B
- * This allows Agent B to download input data and upload results
- */
+// CDP facilitator for production, x402.org for testnet
+const facilitatorClient = USE_CDP
+  ? new HTTPFacilitatorClient(cdpFacilitator)
+  : new HTTPFacilitatorClient({ url: FACILITATOR_URL });
 
-/**
- * Create x402 resource server
- * This is what handles the payment verification
- */
-const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
 const resourceServer = new x402ResourceServer(facilitatorClient)
-  .register('eip155:84532', new ExactEvmScheme()); // Base Sepolia
+  .register(NETWORK, new ExactEvmScheme());
 
-/**
- * Define payment-gated routes
- * IMPORTANT: This configuration tells x402 what to do
- */
 const routes = {
   'POST /analyze': {
     accepts: [
       {
-        scheme: 'exact',      // Payment scheme
-        price: '$0.0001',       // Price in USDC
-        network: 'eip155:84532', // Base Sepolia network
-        payTo: RECIPIENT_ADDRESS, // Where payment goes
+        scheme: 'exact',
+        price: '$0.01',
+        network: NETWORK,
+        payTo: RECIPIENT_ADDRESS,
       },
     ],
-    description: 'Analyze CSV dataset with statistical computation',
+    description: 'Analyze CSV dataset with statistical computation. Accepts an IPFS CID pointing to CSV data, returns resultCID with analysis.',
     mimeType: 'application/json',
+    extensions: {
+      ...declareDiscoveryExtension({
+        input: {
+          contentType: 'application/json',
+          bodyParams: {
+            inputCID: {
+              type: 'string',
+              description: 'IPFS Content Identifier (CID) of the CSV dataset to analyze',
+              required: true,
+              example: 'bafkreig6xv5nwphfmvcnektpnojts33jqcuam7bmye2pb54adnrtccjlsu',
+            },
+            requirements: {
+              type: 'string',
+              description: 'Analysis requirements or focus area',
+              required: false,
+              example: 'statistical analysis',
+            },
+          },
+        },
+        output: {
+          example: {
+            status: 'success',
+            message: 'Analysis complete',
+            resultCID: 'bafkreidvue5jvvuns5a3l3ygziw5z6arymfl3fjotv4o6wlqgsmxycpjze',
+            summary: 'Analyzed 100 rows across 5 columns. Found 3 numerical columns.',
+            statistics: {
+              rowCount: 100,
+              columnCount: 5,
+              columns: ['id', 'name', 'value', 'score', 'category'],
+              numericalStats: {
+                value: { mean: 50.5, median: 50, stdDev: 28.87, min: 1, max: 100 },
+              },
+            },
+            insights: ['High variance detected in value (σ=28.87)'],
+          },
+          schema: {
+            type: 'object',
+            properties: {
+              status: { type: 'string', enum: ['success'] },
+              resultCID: { type: 'string', description: 'IPFS CID of the analysis results file' },
+              summary: { type: 'string', description: 'Human-readable analysis summary' },
+              statistics: {
+                type: 'object',
+                properties: {
+                  rowCount: { type: 'number' },
+                  columnCount: { type: 'number' },
+                  columns: { type: 'array', items: { type: 'string' } },
+                  numericalStats: { type: 'object' },
+                },
+              },
+              insights: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['status', 'resultCID', 'summary', 'statistics'],
+          },
+        },
+      }),
+    },
   },
 };
 
-/**
- * Apply x402 payment middleware
- * THIS IS CRITICAL - it intercepts requests before they reach your handler
- * 
- * What it does:
- * 1. First request: Returns 402 with PAYMENT-REQUIRED header
- * 2. Second request (with X-PAYMENT header): Validates payment, then calls your handler
- */
 app.use(paymentMiddleware(routes, resourceServer));
 
-console.log('✅ Payment middleware configured');
+console.log('✅ Payment middleware configured (Bazaar discovery enabled)');
 
 /**
  * CSV Analysis Function
@@ -299,9 +335,18 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     service: 'Agent B Provider (DataAnalyzer)',
     recipient: RECIPIENT_ADDRESS,
-    network: 'eip155:84532',
-    facilitator: FACILITATOR_URL,
+    network: NETWORK,
+    facilitator: USE_CDP ? 'CDP (production)' : FACILITATOR_URL,
+    bazaarEnabled: true,
     storachaReady: true,
+    endpoints: {
+      analyze: {
+        method: 'POST',
+        path: '/analyze',
+        price: '$0.01',
+        discoverable: true,
+      },
+    },
   });
 });
 
@@ -314,10 +359,11 @@ async function start() {
     app.listen(PORT, () => {
       console.log(`\n🤖 Agent B Provider running on http://localhost:${PORT}`);
       console.log(`💰 Recipient: ${RECIPIENT_ADDRESS}`);
-      console.log(`🌐 Network: Base Sepolia (eip155:84532)`);
-      console.log(`📡 Facilitator: ${FACILITATOR_URL}`);
+      console.log(`🌐 Network: ${NETWORK}`);
+      console.log(`📡 Facilitator: ${USE_CDP ? 'CDP (production)' : FACILITATOR_URL}`);
+      console.log(`🔍 Bazaar Discovery: ENABLED`);
       console.log(`\n📋 Protected endpoints:`);
-      console.log(`   POST /analyze - $0.0001 per analysis`);
+      console.log(`   POST /analyze - $0.01 per analysis`);
       console.log(`\n💡 Ready to process data analysis requests!\n`);
     });
   } catch (error) {

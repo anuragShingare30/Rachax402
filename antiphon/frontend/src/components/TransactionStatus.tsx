@@ -16,7 +16,7 @@ const TransactionStatus = () => {
           className="flex items-center gap-3 p-3 rounded-lg bg-indigo/10 border border-indigo/30 text-sm"
         >
           <span className="text-indigo">💳</span>
-          <span className="text-muted-foreground">Tx:</span>
+          <span className="text-muted-foreground">Base Sepolia Txn Hash:</span>
           <a
             href={`https://sepolia.basescan.org/tx/${txHash}`}
             target="_blank"

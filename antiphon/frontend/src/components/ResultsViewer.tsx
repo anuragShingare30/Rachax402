@@ -7,7 +7,8 @@ const ResultsViewer = () => {
   const [copied, setCopied] = useState(false);
 
   const showAnalysis = service === 'analyze' && analysisResults && currentStep >= 6;
-  const showStorage = service === 'store' && storageResults && currentStep >= 4;
+  const showStorage = (service === 'store' || service === 'retrieve') && storageResults && currentStep >= 4;
+  const isRetrieve = service === 'retrieve' && storageResults?.retrievedDataBase64;
 
   if (!showAnalysis && !showStorage) return null;
 
@@ -108,30 +109,58 @@ const ResultsViewer = () => {
       {showStorage && storageResults && (
         <div className="p-6 rounded-xl bg-success/10 border border-success/30">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-success rounded-full flex items-center justify-center">💾</div>
-            <h2 className="text-2xl font-bold text-foreground">File Stored Successfully</h2>
+            <div className="w-10 h-10 bg-success rounded-full flex items-center justify-center">
+              {isRetrieve ? '📥' : '💾'}
+            </div>
+            <h2 className="text-2xl font-bold text-foreground">
+              {isRetrieve ? 'File Retrieved Successfully' : 'File Stored Successfully'}
+            </h2>
           </div>
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-card">
-              <div>
-                <div className="text-xs text-muted-foreground">CID</div>
-                <div className="font-mono text-sm text-foreground">{storageResults.cid}</div>
+            {storageResults.cid && (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-card">
+                <div>
+                  <div className="text-xs text-muted-foreground">CID</div>
+                  <div className="font-mono text-sm text-foreground">{storageResults.cid}</div>
+                </div>
+                <button
+                  onClick={() => copyToClipboard(storageResults.cid)}
+                  className="px-3 py-1.5 rounded-md bg-secondary text-sm font-medium text-foreground hover:bg-accent transition"
+                >
+                  {copied ? '✓ Copied' : 'Copy CID'}
+                </button>
               </div>
+            )}
+            {isRetrieve && storageResults.retrievedDataBase64 && storageResults.retrievedContentType ? (
               <button
-                onClick={() => copyToClipboard(storageResults.cid)}
-                className="px-3 py-1.5 rounded-md bg-secondary text-sm font-medium text-foreground hover:bg-accent transition"
+                onClick={() => {
+                  const bin = atob(storageResults.retrievedDataBase64!);
+                  const arr = new Uint8Array(bin.length);
+                  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                  const blob = new Blob([arr], { type: storageResults.retrievedContentType! });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = storageResults.fileName || 'retrieved-file';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="block w-full py-3 bg-orange rounded-lg font-semibold text-foreground text-center hover:brightness-110 transition"
               >
-                {copied ? '✓ Copied' : 'Copy CID'}
+                Download Retrieved File
               </button>
-            </div>
-            <a
-              href={`https://w3s.link/ipfs/${storageResults.cid}`}
-              target="_blank"
-              rel="noreferrer"
-              className="block w-full py-3 bg-orange rounded-lg font-semibold text-foreground text-center hover:brightness-110 transition"
-            >
-              View on IPFS
-            </a>
+            ) : (
+              storageResults.cid && (
+                <a
+                  href={`https://w3s.link/ipfs/${storageResults.cid}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block w-full py-3 bg-orange rounded-lg font-semibold text-foreground text-center hover:brightness-110 transition"
+                >
+                  View on IPFS
+                </a>
+              )
+            )}
           </div>
         </div>
       )}

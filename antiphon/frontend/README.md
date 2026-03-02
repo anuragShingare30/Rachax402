@@ -65,6 +65,69 @@ flowchart TB
     P --> Q
 ```
 
+
+```
+┌─────────────────────────────────────────────┐
+                         │           USER (Frontend)                    │
+                         │   "Analyze this CSV" / "Store this file"    │
+                         └─────────────┬───────────────────────────────┘
+                                       │ HTTP POST /api/task
+                                       ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                      AGENT A — Coordinator                           │
+│                  (Your own wallet: AGENT_A_PRIVATE_KEY)              │
+│                                                                      │
+│  Step 1: DISCOVER                                                    │
+│    → readContract(AgentIdentityRegistry, getAgentsByCapability)      │
+│    → readContract(AgentReputationRegistry, getReputationScore)       │
+│    → fetch(w3s.link/ipfs/{agentCardCID}) → get endpoint + price     │
+│                                                                      │
+│  Step 2: UPLOAD INPUT                                                │
+│    → storachaClient.uploadFile(csvFile) → inputCID                  │
+│                                                                      │
+│  Step 3: PAY & CALL                                                  │
+│    → wrapFetchWithPayment(POST agentB:8001/analyze, {inputCID})     │
+│      ↳ AgentB returns 402 → AgentA auto-signs EIP-712 → retries    │
+│      ↳ Payment flows: AgentA wallet → AgentB wallet (on-chain USDC) │
+│                                                                      │
+│  Step 4: REPUTATION                                                  │
+│    → writeContract(AgentReputationRegistry, postReputation)          │
+│      with proofCID = resultCID (the result is the proof!)           │
+│                                                                      │
+│  Step 5: RETURN TO USER                                             │
+│    → { resultCID, summary, statistics, insights }                   │
+└────────────────────┬──────────────────────────────────────────────┘
+                     │ x402 payment (EIP-712 signed)
+          ┌──────────▼──────────────────────────────┐
+          │                                          │
+┌─────────▼──────────┐              ┌───────────────▼──────────────┐
+│   AGENT B-1        │              │   AGENT B-2                  │
+│   DataAnalyzer     │              │   StorachaService             │
+│   :8001/analyze    │              │   :8000/upload, :8000/retrieve│
+│   $0.0001 USDC     │              │   $0.001 / $0.00002 USDC     │
+│   wallet: 0xEAB4.. │              │   wallet: 0x9D48..           │
+│                    │              │                              │
+│  paymentMiddleware │              │  paymentMiddleware           │
+│  → x402 verify     │              │  → x402 verify               │
+│  → parse CSV       │              │  → multer + Storacha upload  │
+│  → statistical     │              │  → return CID                │
+│    analysis        │              │                              │
+│  → upload results  │              │  Both registered on          │
+│  → return resultCID│              │  ERC-8004 identity registry  │
+└────────────────────┘              └──────────────────────────────┘
+          │                                    │
+          └──────────────┬─────────────────────┘
+                         │ Both register on-chain with
+                         ▼
+          ┌──────────────────────────────────────┐
+          │    AgentIdentityRegistry (Deployed)   │
+          │    0x1352abA587fFbbC398d7ecAEA31e... │
+          │                                      │
+          │    AgentReputationRegistry            │
+          │    (proofCID = result = verifiable)   │
+          └──────────────────────────────────────┘
+```
+
 ---
 
 ## Quick Start

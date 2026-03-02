@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node storacha-server.js",
     "dev:agent": "node agentB-server.js",
-    "start": "node storacha-server.js",
+    "start": "concurrently \"node storacha-server.js\" \"node agentB-server.js\"",
     "test": "node test-client.js"
   },
   "keywords": [
@@ -21,6 +21,7 @@
   "author": "Neha Kumari",
   "license": "ISC",
   "dependencies": {
+    "@coinbase/x402": "^2.1.0",
     "@storacha/client": "^2.0.3",
     "@x402/axios": "^2.2.0",
     "@x402/core": "^2.2.0",
@@ -35,6 +36,7 @@
     "viem": "^2.45.1"
   },
   "devDependencies": {
+    "concurrently": "^9.1.0",
     "form-data": "^4.0.5"
   }
 }

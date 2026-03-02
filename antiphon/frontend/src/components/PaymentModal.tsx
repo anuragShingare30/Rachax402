@@ -25,7 +25,7 @@ const PaymentModal = () => {
   const { signTypedDataAsync } = useSignTypedData();
 
   const amount =
-    paymentContext?.forService === 'analyze' ? '$0.0001' : '$0.001';
+    paymentContext?.forService === 'analyze' ? '$0.01' : '$0.1';
   const recipient =
     paymentContext?.forService === 'analyze'
       ? '0xEAB...E35B5f6c9'

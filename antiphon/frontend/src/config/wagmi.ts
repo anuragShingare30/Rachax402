@@ -31,12 +31,9 @@ export const USDC_ABI = [
   },
 ] as const;
 
-// API endpoints
 export const API_ENDPOINTS = {
-  orchestrator: 'http://localhost:3000/message',
-  analyze: 'http://localhost:8001/analyze',
-  storage: 'http://localhost:8000/upload',
+  task: 'http://localhost:3001/api/task',
+  health: 'http://localhost:3001/api/health',
 } as const;
 
-// ERC-8004 Identity Registry
 export const IDENTITY_REGISTRY = '0x1352abA587fFbbC398d7ecAEA31e2948D3aFE4Fb' as const;

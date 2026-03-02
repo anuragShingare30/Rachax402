@@ -15,6 +15,7 @@ import { paymentMiddleware } from '@x402/express';
 import { x402ResourceServer, HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { declareDiscoveryExtension } from '@x402/extensions/bazaar';
+import { facilitator as cdpFacilitator } from '@coinbase/x402';
 import { uploadFileToStoracha, retrieveFileFromStoracha } from './initStoracha.js';
 import dotenv from 'dotenv';
 
@@ -23,10 +24,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// Configure multer for file uploads (memory storage)
 const upload = multer({ storage: multer.memoryStorage() });
 
-// CORS middleware - expose payment headers
 app.use(cors({
   exposedHeaders: ['PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE']
 }));
@@ -35,13 +34,16 @@ app.use(express.json());
 // Configuration
 const RECIPIENT_ADDRESS = process.env.RECIPIENT_ADDRESS;
 const FACILITATOR_URL = process.env.FACILITATOR_URL || 'https://x402.org/facilitator';
+const USE_CDP = !!(process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET);
+const NETWORK = process.env.X402_NETWORK || (USE_CDP ? 'eip155:8453' : 'eip155:84532');
 
-// Create facilitator client
-const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
+// CDP facilitator for production, x402.org for testnet
+const facilitatorClient = USE_CDP
+  ? new HTTPFacilitatorClient(cdpFacilitator)
+  : new HTTPFacilitatorClient({ url: FACILITATOR_URL });
 
-// Create x402 resource server and register EVM scheme
 const resourceServer = new x402ResourceServer(facilitatorClient)
-  .register('eip155:84532', new ExactEvmScheme()); // Base Sepolia
+  .register(NETWORK, new ExactEvmScheme());
 
 console.log('✅ x402 resource server initialized');
 
@@ -51,8 +53,8 @@ const routes = {
     accepts: [
       {
         scheme: 'exact',
-        price: '$0.001', // Price per upload
-        network: 'eip155:84532', // Base Sepolia (CAIP-2 format)
+        price: '$0.1',
+        network: NETWORK,
         payTo: RECIPIENT_ADDRESS,
       },
     ],
@@ -111,8 +113,8 @@ const routes = {
     accepts: [
       {
         scheme: 'exact',
-        price: '$0.00002', // Lower price for retrieval
-        network: 'eip155:84532',
+        price: '$0.005',
+        network: NETWORK,
         payTo: RECIPIENT_ADDRESS,
       },
     ],
@@ -244,20 +246,20 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     service: 'Storacha x402 Agent',
     recipient: RECIPIENT_ADDRESS,
-    network: 'eip155:84532', // Base Sepolia
-    facilitator: FACILITATOR_URL,
+    network: NETWORK,
+    facilitator: USE_CDP ? 'CDP (production)' : FACILITATOR_URL,
     bazaarEnabled: true,
     endpoints: {
       upload: {
         method: 'POST',
         path: '/upload',
-        price: '$0.001',
+        price: '$0.1',
         discoverable: true,
       },
       retrieve: {
         method: 'GET',
         path: '/retrieve',
-        price: '$0.00002',
+        price: '$0.005',
         discoverable: true,
       },
     },
@@ -268,10 +270,10 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Storacha x402 Agent server running on http://localhost:${PORT}`);
   console.log(`💰 Recipient: ${RECIPIENT_ADDRESS}`);
-  console.log(`🌐 Network: eip155:84532 (Base Sepolia)`);
-  console.log(`📡 Facilitator: ${FACILITATOR_URL}`);
+  console.log(`🌐 Network: ${NETWORK}`);
+  console.log(`📡 Facilitator: ${USE_CDP ? 'CDP (production)' : FACILITATOR_URL}`);
   console.log(`🔍 Bazaar Discovery: ENABLED`);
   console.log(`\n📋 Available endpoints:`);
-  console.log(`   POST /upload  - $0.001 per upload`);
-  console.log(`   GET /retrieve - $0.00002 per retrieval`);
+  console.log(`   POST /upload  - $0.1 per upload`);
+  console.log(`   GET /retrieve - $0.005 per retrieval`);
 });

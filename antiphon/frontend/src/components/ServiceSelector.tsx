@@ -7,7 +7,7 @@ const services: { id: ServiceType; icon: string; title: string; desc: string; co
     icon: '📊',
     title: 'Analyze CSV',
     desc: 'Statistical analysis with insights',
-    cost: '$0.0001 USDC',
+    cost: '$0.01 USDC',
     agent: 'Agent Data Analyzer',
     borderColor: 'border-violet',
     costColor: 'text-violet',
@@ -15,12 +15,22 @@ const services: { id: ServiceType; icon: string; title: string; desc: string; co
   {
     id: 'store',
     icon: '💾',
-    title: 'Store File',
+    title: 'Upload File',
     desc: 'Decentralized IPFS storage',
-    cost: '$0.00002 USDC',
+    cost: '$0.1 USDC',
     agent: 'Agent Storacha',
     borderColor: 'border-orange',
     costColor: 'text-orange',
+  },
+  {
+    id: 'retrieve',
+    icon: '📥',
+    title: 'Retrieve File',
+    desc: 'Retrieve files from Storacha using CID',
+    cost: '$0.005 USDC',
+    agent: 'Agent Storacha',
+    borderColor: 'border-green',
+    costColor: 'text-green',
   },
 ];
 

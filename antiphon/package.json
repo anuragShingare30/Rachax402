@@ -29,6 +29,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@elizaos/core": "^1.7.2",
     "@storacha/client": "^2.0.7",
     "@x402/core": "^2.4.0",
     "@x402/evm": "^2.4.0",

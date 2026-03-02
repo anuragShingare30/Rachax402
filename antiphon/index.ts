@@ -1,18 +1,7 @@
 /**
  * Rachax402 — AgentA Lean Coordinator
  *
- * Replaces antiphon/index.ts entirely. No ElizaOS runtime, no AgentRuntime,
- * no DirectClient. Just a clean Express + EventEmitter pipeline that calls
- * your existing plugins directly.
- *
- * ┌─────────────────────────────────────────────────────────────────────┐
- * │  PRESERVED:  plugins/erc8004/index.ts  — untouched                 │
- * │  PRESERVED:  plugins/x402/index.ts     — untouched                 │
- * │  PRESERVED:  agentB-server.js          — untouched                 │
- * │  PRESERVED:  storacha-server.js        — untouched                 │
- * │  REPLACED:   antiphon/index.ts → this file                         │
- * │  FIXED:      Storacha via @storacha/client directly (no plugin)     │
- * └─────────────────────────────────────────────────────────────────────┘
+ * Express + EventEmitter pipeline that calls existing plugins(ERC-8004 and x402) directly.
  *
  * Port: TASK_API_PORT (default 3001)
  * Endpoints:
@@ -26,21 +15,11 @@ import multer from 'multer';
 import cors from 'cors';
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-// import { create } from '@storacha/client';
-// import { StoreMemory } from '@storacha/client/stores/memory';
-// import * as Signer from '@ucanto/principal/ed25519';
-// import { importDAG } from '@ucanto/core/delegation';
-// import { CarReader } from '@ipld/car';
 import * as Client from "@storacha/client";
 import { StoreMemory } from "@storacha/client/stores/memory";
 import * as Proof from "@storacha/client/proof";
 import { Signer } from "@storacha/client/principal/ed25519";
 import dotenv from 'dotenv';
-
-// ── Import your existing plugins as-is ──────────────────────────────────────
-// These import `ActionHandlerCallback` and `ActionHandlerState` from
-// "../../index.js" which resolves to THIS file at runtime.
-
 import {
   getERC8004Actions,
   resolveServiceRoute,
@@ -49,9 +28,6 @@ import { getX402Actions } from './plugins/x402/index.js';
 
 dotenv.config();
 
-// ── Re-export the types plugins depend on ───────────────────────────────────
-// Plugins do: import type { ActionHandlerCallback, ActionHandlerState } from "../../index.js"
-// Since this file IS index.js's replacement, we must export these here.
 export type ActionHandlerCallback = (
   response: { text?: string }
 ) => Promise<unknown[]>;
@@ -99,42 +75,6 @@ interface ErrorResult {
 // Race-safe: GET /stream registers listeners before POST fires first event (it's async).
 const taskStreams = new Map<string, EventEmitter>();
 
-// ── Storacha Direct Client ───────────────────────────────────────────────────
-// Bypasses @storacha/elizaos-plugin entirely, eliminating the CBOR DECODE ERR.
-// Uses @storacha/client + @ucanto/principal/ed25519 + @ipld/car directly.
-// async function initStoracha() {
-//   const pkB64 = process.env.STORACHA_AGENT_PRIVATE_KEY?.replace(/[\r\n\s]+/g, '');
-//   const delB64 = process.env.STORACHA_AGENT_DELEGATION?.replace(/[\r\n\s]+/g, '');
-
-//   if (!pkB64 || !delB64) {
-//     throw new Error('STORACHA_AGENT_PRIVATE_KEY or STORACHA_AGENT_DELEGATION missing');
-//   }
-
-//   // Decode the ED25519 principal key
-//   const keyBytes = Buffer.from(pkB64, 'base64');
-//   const principal = Signer.decode(keyBytes);
-
-//   // Create client with in-memory store (no filesystem dependency)
-//   const client = await create({ principal, store: new StoreMemory() });
-
-//   // Import delegation from raw CAR bytes.
-//   // This is what @storacha/elizaos-plugin does internally but fails on
-//   // because of double-encoding. We do it directly here with no wrapping.
-//   const carBytes = Buffer.from(delB64, 'base64');
-//   const reader = await CarReader.fromBytes(carBytes);
-
-//   const blocks: Parameters<typeof importDAG>[0] = [];
-//   for await (const block of reader.blocks()) {
-//     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-//     blocks.push(block as any);
-//   }
-
-//   const delegation = await importDAG(blocks);
-//   await client.addSpace(delegation);
-
-//   return client;
-// }
-
 export async function initStoracha() {
   try {
     const pvtKey = process.env.STORACHA_AGENT_PRIVATE_KEY;
@@ -160,7 +100,6 @@ export async function initStoracha() {
   }
 }
 
-// ── Config ───────────────────────────────────────────────────────────────────
 function buildConfig() {
   const rpcUrl = process.env.BASE_RPC_URL ?? '';
   const privateKey = process.env.AGENT_A_PRIVATE_KEY ?? '';
@@ -184,7 +123,6 @@ function buildConfig() {
   return { erc8004, x402 };
 }
 
-// ── Entry ─────────────────────────────────────────────────────────────────────
 async function main() {
   const app = express();
   const upload = multer({
