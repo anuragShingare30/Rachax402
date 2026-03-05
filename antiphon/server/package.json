@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "node storacha-server.js",
     "dev:agent": "node agentB-server.js",
-    "start": "concurrently \"node storacha-server.js\" \"node agentB-server.js\"",
+    "dev:both": "concurrently \"node storacha-server.js\" \"node agentB-server.js\"",
+    "start": "node storacha-server.js",
     "test": "node test-client.js"
   },
   "keywords": [
@@ -33,6 +34,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "multer": "^2.0.2",
+    "papaparse": "^5.5.3",
     "viem": "^2.45.1"
   },
   "devDependencies": {
